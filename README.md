@@ -11,5 +11,5 @@ Dependencies:
 You can install both the script and the service with the provided `install.sh` script, `uninstall.sh` uninstalls them.
 
 For manual installation:
-- resize                  goes in ~/.local/bin/ (or other folder in your PATH)
+- compress-media          goes in ~/.local/bin/ (or other folder in your PATH)
 - compress-media.desktop  goes in ~/.local/share/kio/servicemenus/
