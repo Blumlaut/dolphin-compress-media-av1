@@ -15,5 +15,5 @@ Installation options:
 - AUR: https://aur.archlinux.org/packages/dolphin-compress-media
 - Provided `install.sh` script, `uninstall.sh` for uninstall.
 - Manually:
-  - compress-media          goes in ~/.local/bin/ (or other folder in your PATH)
-  - compress-media.desktop  goes in ~/.local/share/kio/servicemenus/
+  - compress-media          goes in `~/.local/bin/` (or other folder in your PATH)
+  - compress-media.desktop  goes in `~/.local/share/kio/servicemenus/`
