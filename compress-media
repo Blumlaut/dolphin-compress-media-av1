@@ -39,8 +39,7 @@ Input file must not be more than 8 times bigger than target size."
         if [ -f "${file%."${ext}"}-${target_size_mb}mb.${ext}" ]; then
             kdialog \
                 --title "Compress Media" \
-                --msgbox "Output file already exists"
-            exit 1
+                --warningcontinuecancel "Output file already exists" || exit
         fi
         target_size=$(( target_size_mb * 1024 * 1024 * 8 )) # target size in bits
         length=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
@@ -61,7 +60,7 @@ Input file must not be more than 8 times bigger than target size."
             -b:a $audio_bitrate \
             -f "$ext" \
             /dev/null && \
-        ffmpeg -i "$file" \
+        ffmpeg -y -i "$file" \
             -vf "scale=-1:'min(1080,ih)'" \
             -r 60 \
             -c:v libx264 \
