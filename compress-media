@@ -8,6 +8,20 @@ Everything else considered to be a file path
 EOF
 }
 
+export TEXTDOMAIN=ua.damglador.compress-media
+# If installed on the system, owner won't match user, so it'll use /usr/share/locale
+if [ "$(stat -c %u "$0")" -eq "$(id -u)" ] && [ "$(id -u)" -ne 0 ]; then
+    export TEXTDOMAINDIR=${XDG_DATA_HOME:-$HOME/.local/share}/locale
+fi
+l10n_title=$(gettext "Compress Media")
+l10n_inputsize_msg=$(gettext "Input target size for the file in MiB")
+l10n_err_mediasize_title=$(gettext "File is too big!")
+# shellcheck disable=SC2016
+l10n_err_mediasize_msg=$(gettext '«${file_name}» is too big (${size}MiB) for the target size of ${target_size_mb}MiB.
+Input file must not be more than 8 times bigger than target size.')
+l10n_err_filetype_msg=$(gettext "Unsupported file type")
+l10n_err_ouputexists_msg=$(gettext "Output file already exists")
+
 if [ -z "$1" ]; then
   usage
   exit
@@ -16,7 +30,19 @@ ARGS=$(getopt -a -n resize -o s:h --long size,help -- "$@")
 eval set -- "$ARGS"
 while true; do
     case $1 in
-        -s | --size) target_size_mb=$2  ; shift 2;;
+        -s | --size)
+            if [ "$2" == "kdialog" ]; then
+                target_size_mb=$(kdialog \
+                    --title "$l10n_title" \
+                    --icon "insert-image" \
+                    --inputbox "$l10n_inputsize_msg")
+                if [ $? == "1" ] || [ -z "$target_size_mb" ]; then
+                    exit
+                fi
+            else
+                target_size_mb=$2
+            fi
+            shift 2;;
         -h | --help) usage              ; exit;;
         --) shift; break;;
     esac
@@ -30,17 +56,16 @@ for file in "$@"; do
     if [[ "$mime" == video/* ]]; then
         size=$(( $(stat -c %s "$file") / 1024 / 1024 )) # file size in MB
         if (( size > target_size_mb * 8 )); then
+            # shellcheck disable=SC2059
             kdialog \
-                --title "Compress Media: File is too big!" \
-                --error "
-«$(basename "$file")» is too big (${size}MB) for the target size of ${target_size_mb}MiB.
-Input file must not be more than 8 times bigger than target size."
+                --title "$l10n_title: $l10n_err_mediasize_title" \
+                --error "$(eval "echo \"$l10n_err_mediasize_msg\"")"
             exit 1
         fi
-        if [ -f "${file%."${ext}"}-${target_size_mb}mb.${ext}" ]; then
+        if [ -f "${file%."${ext}"}-${target_size_mb}MiB.${ext}" ]; then
             kdialog \
-                --title "Compress Media" \
-                --warningcontinuecancel "Output file already exists" || exit
+                --title "$l10n_title" \
+                --warningcontinuecancel "$l10n_err_ouputexists_msg" || exit
         fi
         target_size=$(( target_size_mb * 1024 * 1024 * 8 )) # target size in bits
         length=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
@@ -71,12 +96,12 @@ Input file must not be more than 8 times bigger than target size."
             -pass 2 \
             -passlogfile "${TMPDIR:-/tmp}/ffmpeg2pass-$file_name" \
             -b:a $audio_bitrate \
-            "${file%."${ext}"}-${target_size_mb}mb.${ext}"
+            "${file%."${ext}"}-${target_size_mb}MiB.${ext}"
     elif [[ "$mime" == image/* ]]; then
         magick "$file" \
             -define "webp:extent=$((target_size_mb * 1024))KB" \
-            "${file%."${ext}"}-${target_size_mb}mb.webp"
+            "${file%."${ext}"}-${target_size_mb}MiB.webp"
     else
-        kdialog --title "Compress Media" --error "Unsupported file type"
+        kdialog --title "$l10n_title" --error "$l10n_err_filetype_msg"
     fi
 done

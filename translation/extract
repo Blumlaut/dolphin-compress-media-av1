@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -e
+cd "$(dirname "$0")"
+
+xgettext \
+    --from-code utf-8 \
+    --language Shell \
+    --package-name compress-media \
+    --copyright-holder "Vsevolod «Damglador» Stopchanskyi" \
+    --output template.pot \
+    ../compress-media
