@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -e
+cd "$(dirname "$0")"
+
+textdomain=ua.damglador.compress-media
+
+for f in ./po/*; do
+    locale_name=$(basename "${f%.*}")
+    mkdir -p        "../locale/$locale_name/LC_MESSAGES/"
+    msgfmt "$f" -o  "../locale/$locale_name/LC_MESSAGES/$textdomain.mo"
+done
