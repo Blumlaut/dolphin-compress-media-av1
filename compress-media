@@ -60,7 +60,7 @@ for file in "$@"; do
             exit 1
         fi
 
-        output="${file%."${ext}"}-${target_size_mb}MiB.mkv"
+        output="${file%."${ext}"}-${target_size_mb}MiB.mp4"
         if [ -f "$output" ]; then
             kdialog --title "$l10n_title" --warningcontinuecancel "$l10n_err_ouputexists_msg" || exit
         fi
