@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 usage() {
     cat << EOF
 -s <size> | --size <size> - sets target size of output file in mb
@@ -9,14 +8,13 @@ EOF
 }
 
 export TEXTDOMAIN=ua.damglador.compress-media
-# If installed on the system, owner won't match user, so it'll use /usr/share/locale
 if [ "$(stat -c %u "$0")" -eq "$(id -u)" ] && [ "$(id -u)" -ne 0 ]; then
     export TEXTDOMAINDIR=${XDG_DATA_HOME:-$HOME/.local/share}/locale
 fi
+
 l10n_title=$(gettext "Compress Media")
 l10n_inputsize_msg=$(gettext "Input target size for the file in MiB")
 l10n_err_mediasize_title=$(gettext "File is too big!")
-# shellcheck disable=SC2016
 l10n_err_mediasize_msg=$(gettext '«${file_name}» is too big (${size}MiB) for the target size of ${target_size_mb}MiB.
 Input file must not be more than 8 times bigger than target size.')
 l10n_err_filetype_msg=$(gettext "Unsupported file type")
@@ -26,15 +24,14 @@ if [ -z "$1" ]; then
   usage
   exit
 fi
+
 ARGS=$(getopt -a -n resize -o s:h --long size,help -- "$@")
 eval set -- "$ARGS"
 while true; do
     case $1 in
         -s | --size)
             if [ "$2" == "kdialog" ]; then
-                target_size_mb=$(kdialog \
-                    --title "$l10n_title" \
-                    --icon "insert-image" \
+                target_size_mb=$(kdialog --title "$l10n_title" --icon "insert-image" \
                     --inputbox "$l10n_inputsize_msg")
                 if [ $? == "1" ] || [ -z "$target_size_mb" ]; then
                     exit
@@ -43,63 +40,100 @@ while true; do
                 target_size_mb=$2
             fi
             shift 2;;
-        -h | --help) usage              ; exit;;
+        -h | --help) usage; exit;;
         --) shift; break;;
     esac
 done
 
-target_size_mb="${target_size_mb:-10}" # target size in MB
+target_size_mb="${target_size_mb:-10}"
+
 for file in "$@"; do
     file_name="$(basename "$file")"
     mime=$(file -b --mime-type "$file")
     ext="${file##*.}"
+
     if [[ "$mime" == video/* ]]; then
-        size=$(( $(stat -c %s "$file") / 1024 / 1024 )) # file size in MB
+        size=$(( $(stat -c %s "$file") / 1024 / 1024 ))
         if (( size > target_size_mb * 8 )); then
-            # shellcheck disable=SC2059
-            kdialog \
-                --title "$l10n_title: $l10n_err_mediasize_title" \
+            kdialog --title "$l10n_title: $l10n_err_mediasize_title" \
                 --error "$(eval "echo \"$l10n_err_mediasize_msg\"")"
             exit 1
         fi
-        if [ -f "${file%."${ext}"}-${target_size_mb}MiB.${ext}" ]; then
-            kdialog \
-                --title "$l10n_title" \
-                --warningcontinuecancel "$l10n_err_ouputexists_msg" || exit
+
+        output="${file%."${ext}"}-${target_size_mb}MiB.mkv"
+        if [ -f "$output" ]; then
+            kdialog --title "$l10n_title" --warningcontinuecancel "$l10n_err_ouputexists_msg" || exit
         fi
-        target_size=$(( target_size_mb * 1024 * 1024 * 8 )) # target size in bits
-        length=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-        length=$(( ${length%.*} + 1 ))
-        total_bitrate=$(( target_size / length ))
-        audio_bitrate=$(( 128 * 1000 )) # 128k bit rate
+
+        target_size=$(( target_size_mb * 1024 * 1024 * 8 ))
+        duration=$(ffprobe -v error -show_entries format=duration \
+                      -of default=noprint_wrappers=1:nokey=1 "$file")
+        duration=${duration%.*}
+
+        total_bitrate=$(( target_size / duration ))
+        audio_bitrate=$(( 128 * 1000 ))
         video_bitrate=$(( total_bitrate - audio_bitrate ))
-        trap 'rm "${TMPDIR:-/tmp}/ffmpeg2pass-$(basename "$file")"*' EXIT
-        # -r sets output FPS
-        # -vf "scale=-1:'min(1080,ih)'" if the image is higher than 1080p will rescale to 1080p
+
+        dbus_path=$(kdialog --title "$l10n_title" --progressbar "Compressing ${file_name}..." 100)
+        dbus_service=${dbus_path%% *}
+        dbus_obj=${dbus_path#* }
+        qdbus "$dbus_service" "$dbus_obj" showCancelButton true
+
+        fifo=$(mktemp -u)
+        mkfifo "$fifo"
+
         ffmpeg -y -i "$file" \
             -vf "scale=-1:'min(1080,ih)'" \
             -r 60 \
-            -c:v libx264 \
-            -preset medium \
-            -b:v $video_bitrate \
-            -pass 1 \
-            -passlogfile "${TMPDIR:-/tmp}/ffmpeg2pass-$file_name" \
-            -b:a $audio_bitrate \
-            -f "$ext" \
-            /dev/null && \
-        ffmpeg -y -i "$file" \
-            -vf "scale=-1:'min(1080,ih)'" \
-            -r 60 \
-            -c:v libx264 \
-            -preset medium \
-            -b:v $video_bitrate \
-            -pass 2 \
-            -passlogfile "${TMPDIR:-/tmp}/ffmpeg2pass-$file_name" \
-            -b:a $audio_bitrate \
-            "${file%."${ext}"}-${target_size_mb}MiB.${ext}"
+            -c:v libsvtav1 \
+            -b:v "$video_bitrate" \
+            -preset 5 \
+            -g 240 \
+            -pix_fmt yuv420p10le \
+            -b:a "$audio_bitrate" \
+            -c:a libopus \
+            -ac 2 \
+            -progress "$fifo" \
+            -nostats \
+            "$output" &
+        pid=$!
+
+        (
+            while IFS='=' read -r key value; do
+                case "$key" in
+                    out_time_ms)
+                        [[ "$value" =~ ^[0-9]+$ ]] || continue
+                        cur_s=$(( value / 1000000 ))
+                        percent=$(( cur_s * 100 / duration ))
+                        (( percent > 100 )) && percent=100
+                        qdbus "$dbus_service" "$dbus_obj" Set "" "value" "$percent" 2>/dev/null
+                        ;;
+                esac
+            done
+        ) < "$fifo" &
+        parse_pid=$!
+
+        while kill -0 "$pid" 2>/dev/null; do
+            cancelled=$(qdbus "$dbus_service" "$dbus_obj" wasCancelled 2>/dev/null)
+            if [ "$cancelled" = "true" ]; then
+                kill "$pid" 2>/dev/null
+                kill "$parse_pid" 2>/dev/null
+                rm -f "$output"
+                rm -f "$fifo"
+                qdbus "$dbus_service" "$dbus_obj" close 2>/dev/null
+                exit 1
+            fi
+            sleep 1
+        done
+
+        wait "$pid"
+        rm -f "$fifo"
+
+        qdbus "$dbus_service" "$dbus_obj" Set "" "value" 100 2>/dev/null
+        qdbus "$dbus_service" "$dbus_obj" close 2>/dev/null
+
     elif [[ "$mime" == image/* ]]; then
-        magick "$file" \
-            -define "webp:extent=$((target_size_mb * 1024))KB" \
+        magick "$file" -define "webp:extent=$((target_size_mb * 1024))KB" \
             "${file%."${ext}"}-${target_size_mb}MiB.webp"
     else
         kdialog --title "$l10n_title" --error "$l10n_err_filetype_msg"
