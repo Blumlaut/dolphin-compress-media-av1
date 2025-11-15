@@ -45,7 +45,7 @@ while true; do
     esac
 done
 
-target_size_mb="${target_size_mb:-10}"
+target_size_mb=$(( ${target_size_mb:-10} - 0.2 ))
 
 for file in "$@"; do
     file_name="$(basename "$file")"
