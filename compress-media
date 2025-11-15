@@ -74,10 +74,8 @@ for file in "$@"; do
         audio_bitrate=$(( 128 * 1000 ))
         video_bitrate=$(( total_bitrate - audio_bitrate ))
 
-        dbus_path=$(kdialog --title "$l10n_title" --progressbar "Compressing ${file_name}..." 100)
-        dbus_service=${dbus_path%% *}
-        dbus_obj=${dbus_path#* }
-        qdbus "$dbus_service" "$dbus_obj" showCancelButton true
+        dbusRef=$(kdialog --title "$l10n_title" --progressbar "Compressing ${file_name}..." 100 | tr -d '\r')
+        qdbus $dbusRef showCancelButton true
 
         fifo=$(mktemp -u)
         mkfifo "$fifo"
@@ -106,7 +104,7 @@ for file in "$@"; do
                         cur_s=$(( value / 1000000 ))
                         percent=$(( cur_s * 100 / duration ))
                         (( percent > 100 )) && percent=100
-                        qdbus "$dbus_service" "$dbus_obj" Set "" "value" "$percent" 2>/dev/null
+                        qdbus $dbusRef Set "" "value" "$percent" 2>/dev/null
                         ;;
                 esac
             done
@@ -114,13 +112,11 @@ for file in "$@"; do
         parse_pid=$!
 
         while kill -0 "$pid" 2>/dev/null; do
-            cancelled=$(qdbus "$dbus_service" "$dbus_obj" wasCancelled 2>/dev/null)
-            if [ "$cancelled" = "true" ]; then
+            qdbus $dbusRef >/dev/null 2>&1
+            if [ $? -ne 0 ]; then
                 kill "$pid" 2>/dev/null
                 kill "$parse_pid" 2>/dev/null
-                rm -f "$output"
-                rm -f "$fifo"
-                qdbus "$dbus_service" "$dbus_obj" close 2>/dev/null
+                rm -f "$output" "$fifo"
                 exit 1
             fi
             sleep 1
@@ -129,8 +125,8 @@ for file in "$@"; do
         wait "$pid"
         rm -f "$fifo"
 
-        qdbus "$dbus_service" "$dbus_obj" Set "" "value" 100 2>/dev/null
-        qdbus "$dbus_service" "$dbus_obj" close 2>/dev/null
+        qdbus $dbusRef Set "" "value" 100 2>/dev/null
+        qdbus $dbusRef close 2>/dev/null
 
     elif [[ "$mime" == image/* ]]; then
         magick "$file" -define "webp:extent=$((target_size_mb * 1024))KB" \
