@@ -45,7 +45,11 @@ while true; do
     esac
 done
 
-target_size_mb=$(( ${target_size_mb:-10} - 0.2 ))
+target_size_mb="${target_size_mb:-10}"
+
+# 200KB buffer from the requested size
+buffer_kb=200
+buffer_bytes=$((buffer_kb * 1024))
 
 for file in "$@"; do
     file_name="$(basename "$file")"
@@ -65,7 +69,13 @@ for file in "$@"; do
             kdialog --title "$l10n_title" --warningcontinuecancel "$l10n_err_ouputexists_msg" || exit
         fi
 
-        target_size=$(( target_size_mb * 1024 * 1024 * 8 ))
+        # apply 200KB buffer to target size
+        target_size_bytes=$(( target_size_mb * 1024 * 1024 - buffer_bytes ))
+        if (( target_size_bytes <= 0 )); then
+            target_size_bytes=$(( target_size_mb * 1024 * 1024 ))
+        fi
+        target_size=$(( target_size_bytes * 8 ))
+
         duration=$(ffprobe -v error -show_entries format=duration \
                       -of default=noprint_wrappers=1:nokey=1 "$file")
         duration=${duration%.*}
@@ -74,6 +84,7 @@ for file in "$@"; do
         audio_bitrate=$(( 128 * 1000 ))
         video_bitrate=$(( total_bitrate - audio_bitrate ))
 
+        # FIX: take the raw DBus reference exactly as KDE expects
         dbusRef=$(kdialog --title "$l10n_title" --progressbar "Compressing ${file_name}..." 100 | tr -d '\r')
         qdbus $dbusRef showCancelButton true
 
@@ -129,7 +140,11 @@ for file in "$@"; do
         qdbus $dbusRef close 2>/dev/null
 
     elif [[ "$mime" == image/* ]]; then
-        magick "$file" -define "webp:extent=$((target_size_mb * 1024))KB" \
+        extent_kb=$(( target_size_mb * 1024 - buffer_kb ))
+        if (( extent_kb <= 0 )); then
+            extent_kb=$(( target_size_mb * 1024 ))
+        fi
+        magick "$file" -define "webp:extent=${extent_kb}KB" \
             "${file%."${ext}"}-${target_size_mb}MiB.webp"
     else
         kdialog --title "$l10n_title" --error "$l10n_err_filetype_msg"
